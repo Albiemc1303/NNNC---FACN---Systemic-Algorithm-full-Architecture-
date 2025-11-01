@@ -53,8 +53,8 @@ The purpose of this document and the underlying system is:
 -NES supremacy: The NES sets and enforces reality invariants; it can halt the instance or alter environmental constraints—this happens outside NNNC control.
 
 
-- [ ] **3 — Repo scaffold**
-- ```text
+```text - [ ] **3 — Repo scaffold**
+
 (repo root)
 ├─ cosmic_laws/
 │  ├─ systemic_intelligence_algorithm.py

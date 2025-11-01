@@ -54,8 +54,8 @@ The purpose of this document and the underlying system is:
 
 
 - [ ] **3 — Repo scaffold**
-
-- / (repo root)
+```text
+(repo root)
 ├─ cosmic_laws/
 │  ├─ systemic_intelligence_algorithm.py
 │  ├─ systemic_reasoning_algorithm.py
@@ -96,9 +96,7 @@ The purpose of this document and the underlying system is:
 └─ examples/
    ├─ example_symmetry_contract.py
    └─ example_meta_driver.py
-
-
----
+```
 
 ### **G Priority next actions (what to commit first)**
 - [ ] 1. Add Cosmic Law contracts (immutable rule files).    - - Commit 5 files: 

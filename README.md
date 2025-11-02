@@ -1,4 +1,6 @@
-# NNNC & CogFlux: Unified Task Blueprint & Implementation Protocol
+# The New A.I systems Paradigm: The corrected, and properly defined definitions and their correct usage from first principles novel designs and invented Architectures Era lies with here. 
+
+**We fully discard everything involved in and done by the old and initial Paradigm as their flawed use and implemented definition, led to nothing more the system's internally contradicting, and inversely cakculatting the flow of ths indended algorithmic math flow process, birthing the "black blox" unexplainable AI system Paradigm curently in use from the very start."
 
 ## 1. **Purpose and Ultimate Outcome**
 

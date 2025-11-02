@@ -1,0 +1,1 @@
+"""architecture package — placeholder init."""

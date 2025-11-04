@@ -1,0 +1,21 @@
+{
+  "project_id": "albiemc1303/New-AI-Paradigm-True-AI-Systems-Intelligence-Design-Architecture",
+  "commit_sha": "initial",
+  "author": {
+    "type": "system",
+    "id": "github-copilot",
+    "timestamp": "2025-11-04T00:00:00Z"
+  },
+  "action": "project_init",
+  "inputs": [],
+  "outputs": [
+    {"type": "structure", "path": ".github/workflows/*"},
+    {"type": "policy", "path": "LICENSE.md"},
+    {"type": "policy", "path": "CONTRIBUTING.md"},
+    {"type": "policy", "path": "CITATION.cff"}
+  ],
+  "evidence": {
+    "workflow_run": "initial_setup",
+    "workflow_name": "manual"
+  }
+}

@@ -1,0 +1,56 @@
+name: Provenance Sign & Attest
+
+on:
+  push:
+    branches: [main, feature/*]
+  workflow_dispatch:
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.11'
+          
+      - name: Compute artifact hashes
+        run: |
+          mkdir -p .provenance
+          find . -type f -not -path '*/\.*' -exec sha256sum {} \; > .provenance/artifact.hash
+          
+      - name: Create PROVENANCE.json
+        run: |
+          cat > .provenance/PROVENANCE.json <<EOF
+          {
+            "project_id": "${{ github.repository }}",
+            "commit_sha": "${{ github.sha }}",
+            "author": "${{ github.actor }}",
+            "timestamp": "$(date -u +%FT%TZ)",
+            "branch": "${{ github.ref }}",
+            "action": "commit",
+            "artifacts": "$(cat .provenance/artifact.hash)",
+            "evidence": {
+              "workflow_run": "${{ github.run_id }}",
+              "workflow_name": "${{ github.workflow }}"
+            }
+          }
+          EOF
+          
+      - name: Sign provenance record
+        run: |
+          # This would call your external provenance signing service
+          curl -X POST https://provenance.example/api/sign \
+            -H "Authorization: Bearer ${{ secrets.PROV_API_TOKEN }}" \
+            -F "provenance=@.provenance/PROVENANCE.json" \
+            -o .provenance/PROVENANCE.signed.json
+          
+      - name: Commit provenance record
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .provenance/PROVENANCE*.json
+          git commit -m "Add provenance record for ${{ github.sha }}"
+          git push

@@ -1,0 +1,33 @@
+name: Sync Template Repo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Remove code files for template
+        run: |
+          mkdir ../template
+          # Copy structure but exclude Python source and provenance records
+          rsync -av --exclude='*.py' --exclude='*/.provenance/*' . ../template/
+          
+      - name: Configure Git for template repo
+        run: |
+          cd ../template
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git init
+          git remote add origin https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/Albiemc1303/New-AI-Paradigm-True-AI-Systems-Intelligence-Design-Architecture.git
+          
+      - name: Push to template repo
+        run: |
+          cd ../template
+          git add .
+          git commit -m "Sync structure from main repo"
+          git push -f origin main

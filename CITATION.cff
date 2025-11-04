@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "Please cite this project as below."
+title: "New-AI-Paradigm-True-AI-Systems-Intelligence-Design-Architecture"
+abstract: "A next-generation AI system design framework focused on autonomous intelligence, emergent behavior, and provenance-enforced development."
+authors:
+  - family-names: "McManus"
+    given-names: "Albert Edward"
+date-released: 2025-11-02
+repository-code: "https://github.com/Albiemc1303/New-AI-Paradigm-True-AI-Systems-Intelligence-Design-Architecture"
+license: MIT
+keywords:
+  - artificial intelligence
+  - emergent intelligence
+  - neural networks
+  - autonomous systems
+  - provenance tracking
+references:
+  - type: software
+    title: "NNNC & CogFlux Research System"
+    authors:
+      - name: "Albert Edward McManus"
+    repository-code: "https://github.com/Albiemc1303/Project-New-AI-Inteligence-Systems-design-Architecture-Research-Fully-Structured"

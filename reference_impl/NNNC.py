@@ -212,7 +212,7 @@ class NNNCCore:
 
     def get_system_state(self) -> Dict[str, Any]:
         return {
-            "capacity_dimensions": {name: dim for name, dim in self.cogflux.dimensions.items()},
+            "capacity_dimensions": dict(self.cogflux.dimensions.items()),
             "global_efficiency": self.cogflux.calculate_global_efficiency(),
             "total_capacity": self.cogflux.calculate_total_capacity(),
             "narrative_biases": self.facn.subconscious.narrative_attractors,

@@ -110,8 +110,7 @@ class CriticalThinkingAlgorithm:
         """Detect potential biases in information"""
         if not known_biases:
             return 0.0
-        max_similarity = max([1.0 - cosine(information, bias) for bias in known_biases])
-        return max_similarity
+        return max(1.0 - cosine(information, bias) for bias in known_biases)
 
     def fact_check(self, claim: np.ndarray, evidence: List[np.ndarray]) -> Dict[str, Any]:
         """Verify factual claims against evidence"""

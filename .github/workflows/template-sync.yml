@@ -1,4 +1,6 @@
 name: Sync Template Repo
+permissions:
+  contents: read
 
 on:
   push:

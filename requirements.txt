@@ -1,0 +1,8 @@
+numpy
+networkx
+scipy
+pytest
+numpy
+networkx
+scipy
+pytest

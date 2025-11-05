@@ -172,8 +172,7 @@ class CogFluxEngine:
                             total_efficiency += 1.0 / path_length
                     except nx.NetworkXNoPath:
                         continue
-        eta_G = (1.0 / (N * (N - 1))) * total_efficiency
-        return eta_G
+        return (1.0 / (N * (N - 1))) * total_efficiency
 
     def calculate_total_capacity(self) -> float:
         eta_G = self.calculate_global_efficiency()

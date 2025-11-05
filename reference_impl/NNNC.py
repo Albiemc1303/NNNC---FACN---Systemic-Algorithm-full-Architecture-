@@ -176,9 +176,10 @@ class CogFluxEngine:
 
     def calculate_total_capacity(self) -> float:
         eta_G = self.calculate_global_efficiency()
-        edge_interdependencies = sum([self.graph[u][v]["weight"] for u, v in self.graph.edges()])
-        total_capacity = eta_G + (self.lambda_interdep * edge_interdependencies)
-        return total_capacity
+        edge_interdependencies = sum(
+            self.graph[u][v]["weight"] for u, v in self.graph.edges()
+        )
+        return eta_G + (self.lambda_interdep * edge_interdependencies)
 
 class NNNCCore:
     def __init__(self):

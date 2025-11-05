@@ -90,8 +90,7 @@ class ReasoningAlgorithm:
     def analogical_reasoning(self, source_domain: np.ndarray, target_domain: np.ndarray) -> np.ndarray:
         """Transfer knowledge across domains"""
         similarity = 1.0 - cosine(source_domain, target_domain)
-        transferred_knowledge = source_domain * similarity
-        return transferred_knowledge
+        return source_domain * similarity
 
 
 class CriticalThinkingAlgorithm:

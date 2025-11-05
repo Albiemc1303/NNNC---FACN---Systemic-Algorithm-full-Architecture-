@@ -1,4 +1,6 @@
 name: CI
+permissions:
+  contents: read
 
 on:
   push:
@@ -25,6 +27,8 @@ jobs:
       - name: Run tests
         run: pytest -q
 name: CI
+permissions:
+  contents: read
 
 on:
   push:

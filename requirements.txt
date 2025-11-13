@@ -10,3 +10,6 @@ fastapi
 uvicorn
 pydantic
 zstd
+fastapi[standard]==0.101.1
+uvicorn[standard]
+pydantic

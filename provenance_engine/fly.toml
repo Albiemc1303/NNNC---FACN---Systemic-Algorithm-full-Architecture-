@@ -1,0 +1,10 @@
+app = "prov-eng"
+
+[build]
+  image = "dockerfile"
+
+[env]
+  PROVENANCE_API_TOKEN = "changeme"
+
+[experimental]
+  allowed_public_ports = [8080]

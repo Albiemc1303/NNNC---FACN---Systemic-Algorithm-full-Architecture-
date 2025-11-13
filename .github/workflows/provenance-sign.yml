@@ -78,7 +78,8 @@ PYTHON
       # --- Sign provenance record via external Fly.io engine ---
       - name: Sign provenance record
         run: |
-          RESPONSE=$(curl -s -X POST "https://fly.io/apps/the-provenance-engine/deployments/538318/provenance/check" \
+          RESPONSE=$(curl -s -X POST "https://prov-eng.fly.dev/provenance/check
+" \
             -H "Authorization: Bearer ${{ secrets.PROVENANCE_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d @.provenance/PROVENANCE.json)

@@ -1,0 +1,147 @@
+name: Provenance Chain - Sign & Verify
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+      - feature/*
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  provenance:
+    name: Provenance Chain Verification
+    runs-on: ubuntu-latest
+    outputs:
+      verified: ${{ steps.verify.outputs.result }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Collect Provenance Data
+        id: collect
+        run: |
+          mkdir -p .provenance
+
+          find . -type f \
+            -not -path "./.git/*" \
+            -not -path "./.github/*" \
+            -not -path "./venv/*" \
+            -not -name "*.pyc" \
+            -exec sha256sum {} \; > .provenance/artifacts.list
+
+          jq -R -s -c 'split("\n")[:-1] | map(split("  ") | {hash: .[0], path: .[1]})' .provenance/artifacts.list > .provenance/artifacts.json
+
+          cat <<EOF > .provenance/provenance.json
+          {
+            "repo": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "author": "${{ github.actor }}",
+            "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "files_changed": $(jq -c '[.[] | .path]' .provenance/artifacts.json),
+            "artifacts": $(cat .provenance/artifacts.json)
+          }
+          EOF
+
+          echo "Provenance data prepared:"
+          cat .provenance/provenance.json
+
+      - name: Sign Provenance via Fly.io Engine
+        id: sign
+        env:
+          PROVENANCE_API_TOKEN: ${{ secrets.PROVENANCE_API_TOKEN }}
+        run: |
+          echo "Requesting signature from Fly.io Provenance Engine..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://prov-eng.fly.dev/provenance/sign" \
+            -H "Authorization: Bearer ${PROVENANCE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "@.provenance/provenance.json")
+
+          BODY=$(echo "$RESPONSE" | head -n 1)
+          STATUS=$(echo "$RESPONSE" | tail -n 1)
+
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Signing failed (HTTP $STATUS)"
+            echo "$BODY"
+            exit 1
+          fi
+
+          echo "$BODY" > .provenance/signed.json
+          echo "Signed provenance record saved:"
+          cat .provenance/signed.json
+
+      - name: Verify Signature
+        id: verify
+        env:
+          PROVENANCE_API_TOKEN: ${{ secrets.PROVENANCE_API_TOKEN }}
+        run: |
+          echo "Verifying signature with Fly.io engine..."
+          VERIFY_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://prov-eng.fly.dev/provenance/verify" \
+            -H "Authorization: Bearer ${PROVENANCE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "@.provenance/signed.json")
+
+          BODY=$(echo "$VERIFY_RESPONSE" | head -n 1)
+          STATUS=$(echo "$VERIFY_RESPONSE" | tail -n 1)
+          echo "$BODY" > .provenance/verify.json
+
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Signature verification failed (HTTP $STATUS)"
+            exit 1
+          fi
+
+          VERIFIED=$(jq -r '.verified' .provenance/verify.json)
+          echo "Verification result: $VERIFIED"
+
+          echo "result=$VERIFIED" >> $GITHUB_OUTPUT
+
+      - name: Generate Provenance Badge
+        id: badge
+        run: |
+          mkdir -p .provenance/badges
+          if [ "${{ steps.verify.outputs.result }}" == "true" ]; then
+            COLOR="brightgreen"
+            STATUS="verified"
+          else
+            COLOR="red"
+            STATUS="failed"
+          fi
+
+          echo '{"schemaVersion":1,"label":"provenance","message":"'"$STATUS"'","color":"'"$COLOR"'"}' > .provenance/badges/provenance.json
+          curl -s "https://img.shields.io/static/v1?label=provenance&message=$STATUS&color=$COLOR" -o .provenance/badges/provenance.svg
+          echo "Badge generated: $STATUS"
+
+      - name: Commit Provenance Record
+        if: success()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .provenance/
+          git commit -m "Add provenance & signature for ${{ github.sha }}" || echo "No changes to commit"
+          git push || echo "Push skipped (forked PR or no write access)"
+
+      - name: Post Verification Comment
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: provenance-verification
+          message: |
+            🧾 **Provenance Chain Report**
+            **Commit:** `${{ github.sha }}`
+            **Status:** `${{ steps.verify.outputs.result }}`
+            **Badge:** ![Provenance Status](https://img.shields.io/static/v1?label=provenance&message=${{ steps.verify.outputs.result }}&color=${{ steps.verify.outputs.result == 'true' && 'brightgreen' || 'red' }})
+            **Timestamp:** $(date -u +'%Y-%m-%dT%H:%M:%SZ')

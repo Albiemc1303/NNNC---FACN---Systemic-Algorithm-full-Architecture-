@@ -62,7 +62,8 @@ jobs:
             '{repo: $repo, branch: $branch, commit: $commit, author: $author, timestamp: $timestamp, pr_number: ($pr|tonumber), diff: $diff, files_changed: $files, metadata: $metadata}'
           )
 
-          RESPONSE=$(curl -s -X POST "https://fly.io/apps/the-provenance-engine/deployments/538318/provenance/check" \
+          RESPONSE=$(curl -s -X POST "https://prov-eng.fly.dev/provenance/check
+" \
             -H "Authorization: Bearer ${{ secrets.PROVENANCE_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d "$BODY")

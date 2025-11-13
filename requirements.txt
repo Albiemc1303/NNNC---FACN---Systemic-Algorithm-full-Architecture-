@@ -6,3 +6,7 @@ numpy
 networkx
 scipy
 pytest
+fastapi
+uvicorn
+pydantic
+zstd

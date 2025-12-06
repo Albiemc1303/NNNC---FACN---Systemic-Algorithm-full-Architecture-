@@ -1,334 +1,397 @@
 """
-Ontology Declaration - Reasoning Algorithm
+Ontology Declaration - Reasoning Algorithm (Version 2)
 
-Existence Nature: Systemic Process Module
-Purpose: Implements the Reasoning process: structured, goal-directed transformation of
-         information using logical, statistical, counterfactual, analogical and causal
-         operations. Acts as the primary engine that turns Intelligence capacities into
-         structured inferences for downstream evaluation (Critical Thinking) and alignment
-         (Symmetry). It exposes interfaces for meta-controller (Orchestrator) use and
-         provides introspectable traces for audit, debugging, and self-correction.
+Existence Nature: Systemic Process Module (Inference Engine)
+Purpose:
+  - Provide the formalized "Reasoning" process: deductive, inductive, abductive, analogical,
+    causal inference, mental simulation, strategy planning, context adaptation, epistemic monitoring,
+    and self-correction.
+  - Offer structured reasoning traces and confidence assessments suitable for Symmetry & CriticalThinking.
+  - Integrate with Intelligence capacities and emit audit-friendly reasoning traces and provenance.
 
 Granted Capacities:
-  - Deductive Reasoning
-  - Inductive Reasoning
-  - Abductive Reasoning (hypothesis generation)
-  - Causal Reasoning & Strength Estimation
-  - Analogical Transfer & Mapping
-  - Mental Simulation & Counterfactual Rollouts
-  - Strategic Planning (goal decomposition, means-ends)
-  - Contextual Adaptation & Rule Switching
-  - Epistemic Monitoring & Uncertainty Estimation
-  - Reasoning Self-Correction Hooks (for CriticalThinking & Symmetry feedback)
+  - Multi-mode inference primitives (deduction / induction / abduction / analogy).
+  - Causal inference scorer and temporal factoring.
+  - Mental simulation engine (lightweight vectorized forward-model rollouts).
+  - Strategic planner with means-ends breakdown (abstract).
+  - Context-adaptive rule selector and heuristic switching.
+  - Epistemic monitoring hooks: source weighting, uncertainty calibration, and contradiction detection.
+  - Self-correction: re-evaluate with alternative premises, request additional evidence, or escalate.
 
 Interactions:
-  - Inputs from IntelligenceAlgorithm: abstracted patterns, predictive priors, and capacity signals.
-  - Outputs to CriticalThinkingAlgorithm: candidate inferences, confidence traces, simulated rollouts.
-  - Receives policy/constraint signals from SymmetryAlgorithm (truth alignment) and Orchestrator.
-  - Provides introspective traces for EvolutionAlgorithm to decide structural adaptations.
-
-Notes:
-  - This module favors transparent, auditable computations (no opaque black-box decisions).
-  - All outputs are returned with structured metadata: {vector, confidence, provenance, trace}.
+  - Accepts inputs from Intelligence (representations & capacity signals).
+  - Emits reasoning traces to CriticalThinking & Symmetry for fact-check and credibility evaluation.
+  - Accepts enforcement signals (e.g., re-evaluate, quarantine) from Symmetry.
 """
 
-from typing import List, Dict, Any, Tuple, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
 import numpy as np
-from scipy.spatial.distance import cosine
-import math
-import copy
+import time
 import uuid
+import copy
+import math
+import logging
+
+# Setup logger
+logger = logging.getLogger("reasoning_v2")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
-# --- Utility functions ------------------------------------------------------
-def safe_cosine(a: np.ndarray, b: np.ndarray, eps: float = 1e-8) -> float:
-    """Return cosine similarity in [0,1] robustly (1 = identical)."""
-    na = np.linalg.norm(a) + eps
-    nb = np.linalg.norm(b) + eps
-    return 1.0 - (np.dot(a, b) / (na * nb))
+# ----------------------------
+# Utilities
+# ----------------------------
+def now_ts() -> float:
+    return time.time()
 
 
-def normalize(v: np.ndarray) -> np.ndarray:
+def clamp01(x: float) -> float:
+    return float(max(0.0, min(1.0, x)))
+
+
+def safe_norm(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+    v = np.array(v, dtype=float)
     n = np.linalg.norm(v)
-    if n < 1e-9:
+    if n < eps:
         return v
     return v / n
 
 
-def confidence_from_variance(samples: np.ndarray) -> float:
-    """Map sample variance to a [0,1] confidence (high variance -> low confidence)."""
-    var = np.var(samples)
-    conf = math.exp(-var)  # simple mapping
-    return float(np.clip(conf, 0.0, 1.0))
+# ----------------------------
+# Dataclasses for traces
+# ----------------------------
+@dataclass
+class ReasoningTrace:
+    trace_id: str
+    mode: str
+    input_vectors: List[np.ndarray]
+    output_vector: np.ndarray
+    confidence: float
+    justification: Dict[str, Any]
+    timestamp: float = field(default_factory=now_ts)
 
 
-# --- Reasoning module -------------------------------------------------------
-class ReasoningAlgorithm:
+# ----------------------------
+# ReasoningAlgorithmV2
+# ----------------------------
+class ReasoningAlgorithmV2:
     """
-    Reasoning (Process) Algorithm - Version 2
-    Implements structured inference and planning capabilities with introspection.
+    Multi-modal reasoning engine with epistemic monitoring and self-correction.
     """
 
     def __init__(self,
-                 inference_threshold: float = 0.6,
-                 default_dim: int = 128):
-        self.inference_threshold = inference_threshold
-        self.default_dim = default_dim
-        # persistent knowledge used for analogical mapping and schemas
-        self.knowledge_templates: Dict[str, np.ndarray] = {}
-        # lightweight episodic buffer for mental simulation seeds
-        self.simulation_buffer: List[np.ndarray] = []
-        # last trace store for introspection
-        self.last_traces: List[Dict[str, Any]] = []
+                 vector_dim: int = 16,
+                 rng_seed: Optional[int] = None,
+                 inference_threshold: float = 0.6):
+        self.vector_dim = int(vector_dim)
+        self._rng = np.random.default_rng(rng_seed)
+        self.inference_threshold = float(inference_threshold)
 
-    # -------------------------
-    # Core Inferential Primitives
-    # -------------------------
-    def deductive_reasoning(self, premises: List[np.ndarray], rule: np.ndarray) -> Dict[str, Any]:
-        """
-        Deduce conclusions from premises and explicit rule.
-        Returns vector + confidence + provenance trace.
-        """
-        premises_stack = np.stack(premises) if premises else np.zeros((1, self.default_dim))
-        combined = np.mean(premises_stack, axis=0)
-        conclusion_vec = normalize(combined * rule)
-        # Confidence: based on coherence of premises (low variance -> high confidence)
-        conf = confidence_from_variance(premises_stack)
-        trace = {
-            'type': 'deductive',
-            'premises_count': len(premises),
-            'rule_id': getattr(rule, 'id', None),
-            'coherence': float(1.0 - np.std(premises_stack).mean())
-        }
-        out = {'vector': conclusion_vec, 'confidence': conf, 'trace': trace}
-        self.last_traces.append(out)
-        return out
+        # callbacks
+        self.symmetry_callbacks: List[Callable[[Dict[str, Any]], None]] = []
+        self.ct_callbacks: List[Callable[[Dict[str, Any]], None]] = []  # critical thinking / consumer
+        self.orchestrator_callbacks: List[Callable[[Dict[str, Any]], None]] = []
 
-    def inductive_reasoning(self, observations: List[np.ndarray]) -> Dict[str, Any]:
+        # telemetry & history
+        self.telemetry: Dict[str, Any] = {'traces': [], 'contradictions': []}
+
+    # ----------------------------
+    # registration
+    # ----------------------------
+    def register_symmetry_callback(self, cb: Callable[[Dict[str, Any]], None]) -> None:
+        self.symmetry_callbacks.append(cb)
+
+    def register_critical_thinking_callback(self, cb: Callable[[Dict[str, Any]], None]) -> None:
+        self.ct_callbacks.append(cb)
+
+    def register_orchestrator_callback(self, cb: Callable[[Dict[str, Any]], None]) -> None:
+        self.orchestrator_callbacks.append(cb)
+
+    def _emit_symmetry(self, payload: Dict[str, Any]) -> None:
+        for cb in self.symmetry_callbacks:
+            try:
+                cb(payload)
+            except Exception:
+                logger.exception("symmetry cb failed")
+
+    def _emit_ct(self, payload: Dict[str, Any]) -> None:
+        for cb in self.ct_callbacks:
+            try:
+                cb(payload)
+            except Exception:
+                logger.exception("ct cb failed")
+
+    def _emit_orchestrator(self, payload: Dict[str, Any]) -> None:
+        for cb in self.orchestrator_callbacks:
+            try:
+                cb(payload)
+            except Exception:
+                logger.exception("orchestrator cb failed")
+
+    # ----------------------------
+    # Basic inference modes
+    # ----------------------------
+    def deductive_reasoning(self, premises: List[np.ndarray], rule_matrix: Optional[np.ndarray] = None) -> ReasoningTrace:
         """
-        Induce a generalization from observations.
-        Returns generalization vector and confidence scaled by sample variance & sample count.
+        Simple vectorized deduction: combines premises and applies transformation (rule_matrix).
+        rule_matrix maps premise-space -> conclusion-space (if None, use average).
+        """
+        if not premises:
+            out = np.zeros(self.vector_dim)
+            confidence = 0.0
+            just = {'reason': 'no_premises'}
+        else:
+            stacked = np.stack([np.array(p, dtype=float) for p in premises])
+            combined = np.mean(stacked, axis=0)
+            if rule_matrix is not None:
+                try:
+                    out = np.dot(rule_matrix, combined)
+                except Exception:
+                    out = combined
+            else:
+                out = combined
+            # confidence heuristic: inverse variance across premises
+            var = float(np.mean(np.var(stacked, axis=0)))
+            confidence = clamp01(1.0 - var)
+            just = {'method': 'deduction', 'premise_var': var}
+
+        trace = ReasoningTrace(
+            trace_id=str(uuid.uuid4()),
+            mode='deductive',
+            input_vectors=premises,
+            output_vector=safe_norm(np.array(out)),
+            confidence=confidence,
+            justification=just
+        )
+        self._record_trace(trace)
+        return trace
+
+    def inductive_reasoning(self, observations: List[np.ndarray]) -> ReasoningTrace:
+        """
+        Infer generalization from examples. Provide generalization vector + confidence
+        (higher when low observation variance and enough samples).
         """
         if not observations:
-            vec = np.zeros(self.default_dim)
-            return {'vector': vec, 'confidence': 0.0, 'trace': {'type': 'inductive', 'n': 0}}
-
-        obs_stack = np.stack(observations)
-        mean_vec = np.mean(obs_stack, axis=0)
-        variance = np.var(obs_stack, axis=0).mean()
-        # confidence increases with sample count and decreases with variance
-        conf = float(np.clip((1.0 - variance) * (1.0 - math.exp(-len(observations) / 10.0)), 0.0, 1.0))
-        trace = {'type': 'inductive', 'n': len(observations), 'variance': float(variance)}
-        out = {'vector': normalize(mean_vec), 'confidence': conf, 'trace': trace}
-        self.last_traces.append(out)
-        return out
-
-    def abductive_reasoning(self, observations: List[np.ndarray],
-                           candidate_hypotheses: Optional[List[np.ndarray]] = None,
-                           top_k: int = 3) -> Dict[str, Any]:
-        """
-        Abduction: propose best-fitting hypotheses to explain observations.
-        If candidate_hypotheses supplied, rank them; otherwise synthesize prototypes.
-        """
-        obs_mean = np.mean(np.stack(observations), axis=0) if observations else np.zeros(self.default_dim)
-        hyps = candidate_hypotheses or [obs_mean + np.random.randn(self.default_dim) * 0.1 for _ in range(8)]
-        scores = []
-        for h in hyps:
-            sim = safe_cosine(normalize(h), normalize(obs_mean))
-            # penalize overly complex hypotheses via L2 norm
-            complexity_penalty = min(1.0, np.linalg.norm(h) / (np.sqrt(self.default_dim) + 1e-6))
-            score = float(sim * (1.0 - 0.2 * complexity_penalty))
-            scores.append(score)
-        ranked_indices = sorted(range(len(hyps)), key=lambda i: scores[i], reverse=True)[:top_k]
-        chosen = [hyps[i] for i in ranked_indices]
-        conf = float(np.mean([scores[i] for i in ranked_indices]))
-        trace = {'type': 'abductive', 'candidates': len(hyps), 'chosen_k': top_k}
-        out = {'hypotheses': chosen, 'confidence': conf, 'trace': trace}
-        self.last_traces.append(out)
-        return out
-
-    # -------------------------
-    # Causal & Analogical Reasoning
-    # -------------------------
-    def causal_reasoning(self, event_a: np.ndarray, event_b: np.ndarray, temporal_gap: float,
-                         method: str = 'correlational') -> Dict[str, Any]:
-        """
-        Compute causal strength proxies using multiple heuristics:
-          - correlational (cosine/time decay)
-          - temporal precedence weighting
-          - counterfactual delta when simulation available
-        Returns strength [0,1], relationship label, and provenance.
-        """
-        sim = safe_cosine(event_a, event_b)
-        time_decay = math.exp(-temporal_gap / 10.0)
-        base_strength = sim * time_decay
-
-        # optional counterfactual check using simulation buffer (if available)
-        counterfactual_boost = 0.0
-        if len(self.simulation_buffer) > 0:
-            # crude check: does removing event_a in-rollout reduce probability of event_b
-            # NOTE: this is a placeholder for a full counterfactual module
-            cf_samples = np.stack(self.simulation_buffer[-4:])
-            cf_change = float(np.mean(np.abs(cf_samples.mean(axis=0) - event_b)).clip(0.0, 1.0))
-            counterfactual_boost = max(0.0, (1.0 - cf_change) * 0.2)
-
-        strength = float(np.clip(base_strength + counterfactual_boost, 0.0, 1.0))
-        if strength > 0.75:
-            label = 'strong_causal'
-        elif strength > 0.4:
-            label = 'weak_causal'
+            out = np.zeros(self.vector_dim)
+            confidence = 0.0
+            just = {'reason': 'no_observations'}
         else:
-            label = 'no_causal'
+            stacked = np.stack([np.array(o, dtype=float) for o in observations])
+            mean = np.mean(stacked, axis=0)
+            var = float(np.mean(np.var(stacked, axis=0)))
+            # sample-size adjustment
+            n = len(observations)
+            confidence = clamp01((1.0 - var) * math.log(1 + n) / math.log(1 + n + 1e-9))
+            out = safe_norm(mean) * confidence
 
-        trace = {'type': 'causal', 'sim': float(sim), 'time_decay': float(time_decay),
-                 'counterfactual_boost': float(counterfactual_boost)}
-        out = {'strength': strength, 'label': label, 'trace': trace}
-        self.last_traces.append(out)
-        return out
+            just = {'method': 'induction', 'n': n, 'var': var}
 
-    def analogical_reasoning(self, source: np.ndarray, target: np.ndarray,
-                             mapping_seed: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        trace = ReasoningTrace(
+            trace_id=str(uuid.uuid4()),
+            mode='inductive',
+            input_vectors=observations,
+            output_vector=np.array(out),
+            confidence=float(confidence),
+            justification=just
+        )
+        self._record_trace(trace)
+        return trace
+
+    def abductive_reasoning(self, observations: List[np.ndarray], hypotheses: List[np.ndarray]) -> ReasoningTrace:
         """
-        Produce transferred knowledge vector via analogical mapping.
-        Returns transferred vector, similarity, and mapping trace.
+        Abductive: select best hypothesis that explains observations (maximizes similarity).
+        Returns chosen hypothesis vector and justification.
         """
-        sim = safe_cosine(source, target)
-        mapping = mapping_seed if mapping_seed is not None else (source + target) / 2.0
-        transferred = normalize(mapping * sim)
-        trace = {'type': 'analogical', 'similarity': float(sim)}
-        out = {'vector': transferred, 'similarity': float(sim), 'trace': trace}
-        self.last_traces.append(out)
-        return out
+        if not (observations and hypotheses):
+            out = np.zeros(self.vector_dim)
+            conf = 0.0
+            just = {'reason': 'insufficient_data'}
+        else:
+            obs_mean = np.mean(np.stack([np.array(o, dtype=float) for o in observations]), axis=0)
+            sims = [float(np.dot(safe_norm(np.array(h)), safe_norm(obs_mean))) for h in hypotheses]
+            best_idx = int(np.argmax(sims))
+            out = safe_norm(np.array(hypotheses[best_idx], dtype=float))
+            conf = clamp01(sims[best_idx])
+            just = {'method': 'abduction', 'best_idx': best_idx, 'similarities': sims}
 
-    # -------------------------
-    # Mental Simulation & Strategic Planning
-    # -------------------------
-    def mental_simulation(self, seed_state: np.ndarray, transition_fn,
-                          steps: int = 5, stochasticity: float = 0.05) -> Dict[str, Any]:
+        trace = ReasoningTrace(
+            trace_id=str(uuid.uuid4()),
+            mode='abductive',
+            input_vectors=observations + hypotheses,
+            output_vector=np.array(out),
+            confidence=float(conf),
+            justification=just
+        )
+        self._record_trace(trace)
+        return trace
+
+    def analogical_reasoning(self, source: np.ndarray, target_prototype: np.ndarray) -> ReasoningTrace:
         """
-        Perform short-horizon counterfactual rollouts.
-        - transition_fn(state, action) -> next_state
-        - action selection is naive: sample small perturbations; Orchestrator can inject policies.
-        Returns trajectory, average divergence and confidence.
+        Transfer features from source domain to target prototype by similarity weighting.
         """
-        state = seed_state.copy()
-        trajectory = [state.copy()]
-        for t in range(steps):
-            # naive action sampling for rollout; orchestrator/policy should override for realism
-            action = np.random.randn(len(state)) * stochasticity
-            next_state = transition_fn(state, action)
-            trajectory.append(next_state.copy())
-            state = next_state
+        s = safe_norm(np.array(source, dtype=float))
+        t = safe_norm(np.array(target_prototype, dtype=float))
+        similarity = float(np.dot(s, t))
+        transfer = s * similarity
+        conf = clamp01(similarity)
+        just = {'method': 'analogy', 'similarity': similarity}
+        trace = ReasoningTrace(trace_id=str(uuid.uuid4()),
+                               mode='analogical',
+                               input_vectors=[source, target_prototype],
+                               output_vector=safe_norm(transfer),
+                               confidence=conf,
+                               justification=just)
+        self._record_trace(trace)
+        return trace
 
-        # store summaries for causal counterfactuals
-        self.simulation_buffer.append(np.mean(np.stack(trajectory), axis=0))
-        divergence = float(np.mean([np.linalg.norm(trajectory[i + 1] - trajectory[i]) for i in range(len(trajectory) - 1)]))
-        confidence = float(np.clip(1.0 / (1.0 + divergence), 0.0, 1.0))
-        trace = {'type': 'simulation', 'steps': steps, 'divergence': divergence}
-        out = {'trajectory': trajectory, 'confidence': confidence, 'trace': trace}
-        self.last_traces.append(out)
-        return out
-
-    def strategic_planning(self, goal_vec: np.ndarray, available_ops: List[np.ndarray],
-                           depth: int = 3) -> Dict[str, Any]:
+    # ----------------------------
+    # Causal reasoning & temporal factors
+    # ----------------------------
+    def causal_reasoning(self, event_a: np.ndarray, event_b: np.ndarray, temporal_gap: float = 1.0) -> Dict[str, Any]:
         """
-        Simple means-ends planner over vectorized operations.
-        available_ops: list of op-vectors that transform state when added.
-        Returns plan (sequence of op indices), expected_state, and plan_confidence.
+        Compute a causal strength proxy: similarity * temporal_decay * directional_indicator.
+        Returns a structured dict with 'strength' and 'relationship' label.
         """
-        start = np.zeros_like(goal_vec)
-        best_plan = None
-        best_score = -1.0
-        best_state = None
+        a = safe_norm(np.array(event_a, dtype=float))
+        b = safe_norm(np.array(event_b, dtype=float))
+        sim = float(np.dot(a, b))
+        temporal_factor = math.exp(-abs(temporal_gap) / (1.0 + 0.5))  # tunable decay
+        # directional indicator: dot with gradient (simple heuristic)
+        # here we use element-wise difference
+        directionality = float(np.mean(np.sign(b - a) * (b - a)))
+        strength = clamp01(sim * temporal_factor * (0.5 + 0.5 * abs(directionality)))
+        if strength > 0.75:
+            rel = 'strong_causal'
+        elif strength > 0.4:
+            rel = 'weak_causal'
+        else:
+            rel = 'no_causal'
+        result = {'strength': float(strength), 'relationship': rel, 'sim': sim, 'temporal_factor': temporal_factor}
+        # emit to telemetry
+        self.telemetry.setdefault('causal_checks', []).append({'ts': now_ts(), **result})
+        return result
 
-        # brute-force limited search: sample sequences up to depth
-        for _ in range(200):  # stochastic search budget
-            plan = [np.random.choice(len(available_ops)) for _ in range(depth)]
-            state = start.copy()
-            for idx in plan:
-                state = normalize(state + available_ops[idx])
-            score = safe_cosine(state, goal_vec)
-            if score > best_score:
-                best_score = score
-                best_plan = plan
-                best_state = state
-
-        plan_conf = float(np.clip(best_score, 0.0, 1.0))
-        trace = {'type': 'planning', 'depth': depth, 'search_budget': 200}
-        out = {'plan': best_plan, 'expected_state': best_state, 'confidence': plan_conf, 'trace': trace}
-        self.last_traces.append(out)
-        return out
-
-    # -------------------------
-    # Contextual Adaptation & Rule-Switching
-    # -------------------------
-    def contextual_adaptation(self, input_vec: np.ndarray, context_signals: Dict[str, float]) -> Dict[str, Any]:
+    # ----------------------------
+    # Mental simulation
+    # ----------------------------
+    def mental_simulation(self, initial_state: np.ndarray, dynamics_fn: Callable[[np.ndarray], np.ndarray], steps: int = 5) -> Tuple[np.ndarray, List[np.ndarray]]:
         """
-        Adjust reasoning parameters and selection heuristics based on context.
-        Example contexts: {'time_pressure':0.7, 'social_sensitivity':0.2, 'culture_style':0.5}
-        Returns adapted vector and applied modulation details.
+        Lightweight forward rollout using provided vector-dynamics function.
+        Returns final state and list of intermediate states.
         """
-        mod_vec = input_vec.copy()
-        # time pressure -> favor fast, heuristic methods (downweight variance)
-        if context_signals.get('time_pressure', 0.0) > 0.5:
-            mod_vec = normalize(mod_vec) * 0.8
-        # social sensitivity -> bias towards socially-aligned templates
-        if context_signals.get('social_sensitivity', 0.0) > 0.5 and self.knowledge_templates:
-            # blend with most relevant social template
-            templates = list(self.knowledge_templates.values())
-            mod_vec = normalize(0.7 * mod_vec + 0.3 * templates[0])
-        trace = {'type': 'contextual_adapt', 'signals': context_signals}
-        out = {'vector': mod_vec, 'trace': trace}
-        self.last_traces.append(out)
-        return out
+        s = np.array(initial_state, dtype=float)
+        states = [s.copy()]
+        for _ in range(max(1, int(steps))):
+            s = dynamics_fn(s)
+            states.append(s.copy())
+        final = safe_norm(s)
+        # record trace
+        self.telemetry.setdefault('simulation_runs', []).append({'ts': now_ts(), 'steps': steps})
+        return final, states
 
-    # -------------------------
-    # Epistemic Monitoring & Self-Correction Hooks
-    # -------------------------
-    def epistemic_monitoring(self, candidate_vec: np.ndarray, supporting_evidence: List[np.ndarray]) -> Dict[str, Any]:
+    # ----------------------------
+    # Strategic planning (abstract)
+    # ----------------------------
+    def strategic_plan(self, goal_vec: np.ndarray, current_state_vec: np.ndarray, max_depth: int = 4) -> Dict[str, Any]:
         """
-        Evaluate evidence support for candidate inference.
-        Returns support_score [0,1], aggregated_confidence, and evidence_alignment metrics.
+        Produce a minimal abstract plan as a sequence of intermediate vectors (means-ends).
+        This is an abstract heuristic planner using linear interpolation + simple pruning.
         """
-        if not supporting_evidence:
-            return {'support': 0.0, 'evidence_alignment': 0.0, 'confidence': 0.0}
+        cur = np.array(current_state_vec, dtype=float)
+        goal = np.array(goal_vec, dtype=float)
+        plan = []
+        for d in range(1, max_depth + 1):
+            alpha = d / float(max_depth)
+            step = safe_norm(cur * (1 - alpha) + goal * alpha)
+            plan.append(step)
+        # score plan plausibility by average similarity chaining
+        sims = [float(np.dot(safe_norm(plan[i]), safe_norm(plan[i+1]))) for i in range(len(plan)-1)] if len(plan) > 1 else [1.0]
+        plausibility = clamp01(np.mean(sims))
+        result = {'plan': plan, 'plausibility': plausibility, 'steps': len(plan)}
+        self.telemetry.setdefault('plans', []).append({'ts': now_ts(), 'plausibility': plausibility})
+        return result
 
-        sims = [safe_cosine(candidate_vec, e) for e in supporting_evidence]
-        support = float(np.mean(sims))
-        # confidence increases with number of independent supporting evidence items and their mean similarity
-        conf = float(np.clip(support * (1.0 - math.exp(-len(supporting_evidence) / 5.0)), 0.0, 1.0))
-        trace = {'type': 'epistemic_monitor', 'n_evidence': len(supporting_evidence), 'mean_sim': float(support)}
-        out = {'support': support, 'evidence_alignment': float(np.mean(sims)), 'confidence': conf, 'trace': trace}
-        self.last_traces.append(out)
-        return out
-
-    def self_correction_update(self, belief_vec: np.ndarray, feedback: Dict[str, Any]) -> Dict[str, Any]:
+    # ----------------------------
+    # Epistemic monitoring & contradiction detection
+    # ----------------------------
+    def epistemic_monitor(self, reasoning_trace: ReasoningTrace, sources: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
-        Apply corrective adjustments to an internal belief based on feedback from
-        CriticalThinking / Symmetry (e.g., flagged contradictions, low credibility).
-        Returns updated belief and a log of changes.
+        Assess quality of trace by source reliability and internal coherence.
+        sources: optional list of {'source_id':..., 'reliability':0..1}
         """
-        updated = belief_vec.copy()
-        reason = feedback.get('reason', '')
-        severity = feedback.get('severity', 0.5)
-        correction_signal = feedback.get('correction_vector', np.zeros_like(belief_vec))
+        base_conf = float(reasoning_trace.confidence)
+        source_weight = 0.5
+        if sources:
+            avg_rel = float(np.mean([s.get('reliability', 0.5) for s in sources]))
+            adjusted_conf = clamp01(0.6 * base_conf + 0.4 * avg_rel)
+        else:
+            adjusted_conf = base_conf
 
-        # Weighted correction: stronger severity -> larger update
-        updated = normalize((1.0 - severity) * updated + severity * normalize(correction_signal + 1e-6))
-        trace = {'type': 'self_correction', 'reason': reason, 'severity': float(severity)}
-        out = {'updated_belief': updated, 'trace': trace}
-        self.last_traces.append(out)
-        return out
+        # check contradictions against recent traces
+        contradictions = []
+        for t in self.telemetry.get('traces', [])[-50:]:
+            # simple contradiction: strong negative dot product
+            dot = float(np.dot(safe_norm(np.array(t['output_vector'])), safe_norm(reasoning_trace.output_vector)))
+            if dot < -0.2:
+                contradictions.append({'trace_id': t['trace_id'], 'dot': dot})
 
-    # -------------------------
-    # Utilities & Introspection
-    # -------------------------
-    def register_template(self, template_id: Optional[str], vector: np.ndarray) -> str:
-        """Store a knowledge template for analogical mapping and contextual biasing."""
-        tid = template_id or str(uuid.uuid4())
-        self.knowledge_templates[tid] = normalize(vector)
-        return tid
+        if contradictions:
+            # emit to orchestrator/symmetry
+            self._emit_symmetry({'type': 'contradiction_detected', 'trace_id': reasoning_trace.trace_id, 'details': contradictions})
+            self.telemetry.setdefault('contradictions', []).extend(contradictions)
 
-    def get_last_traces(self, n: int = 10) -> List[Dict[str, Any]]:
-        """Return last n traces for introspection or logging."""
-        return list(self.last_traces[-n:])
+        result = {'trace_id': reasoning_trace.trace_id, 'adjusted_confidence': adjusted_conf, 'contradictions': contradictions}
+        return result
+
+    # ----------------------------
+    # Self-correction & re-evaluation
+    # ----------------------------
+    def self_correct(self, trace: ReasoningTrace, alternative_premises: Optional[List[np.ndarray]] = None) -> Dict[str, Any]:
+        """
+        Attempt re-evaluation when low-confidence or contradictions exist. Returns result dict and
+        possibly a replacement trace suggestion.
+        """
+        if trace.confidence > 0.6 and not self.telemetry.get('contradictions'):
+            return {'action': 'no_correction_needed', 'trace_id': trace.trace_id}
+
+        # re-evaluate using alternative premises if provided
+        if alternative_premises:
+            new_trace = self.inductive_reasoning(alternative_premises)
+            # compare confidence improvement
+            improved = new_trace.confidence > trace.confidence
+            # emit to critical thinking consumers
+            self._emit_ct({'type': 'self_correction', 'original': trace.trace_id, 'replacement': new_trace.trace_id, 'improved': improved})
+            return {'action': 're_eval', 'original': trace.trace_id, 'replacement': new_trace.trace_id, 'improved': improved}
+        else:
+            # request more evidence via orchestrator
+            req = {'type': 'request_evidence', 'trace_id': trace.trace_id, 'reason': 'low_confidence_or_contradiction'}
+            self._emit_orchestrator(req)
+            return {'action': 'request_evidence', 'trace_id': trace.trace_id}
+
+    # ----------------------------
+    # Trace recording
+    # ----------------------------
+    def _record_trace(self, trace: ReasoningTrace) -> None:
+        # store minimal serializable info
+        serial = {
+            'trace_id': trace.trace_id,
+            'mode': trace.mode,
+            'output_vector': np.asarray(trace.output_vector).tolist(),
+            'confidence': float(trace.confidence),
+            'justification': trace.justification,
+            'ts': now_ts()
+        }
+        self.telemetry.setdefault('traces', []).append(serial)
+        # push to critical thinking / symmetry consumers
+        self._emit_ct({'type': 'new_trace', 'trace': serial})
+        self._emit_symmetry({'type': 'new_trace_symmetry_check', 'trace_id': trace.trace_id, 'confidence': trace.confidence})
+
+    # ----------------------------
+    # Introspection
+    # ----------------------------
+    def get_telemetry(self) -> Dict[str, Any]:
+        return copy.deepcopy(self.telemetry)
